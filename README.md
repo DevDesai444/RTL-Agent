@@ -1,8 +1,6 @@
-# RTL-Agent (MAGE-Based Multi-Agent RTL Generation)
+# RTL-Agent (Multi-Agent RTL Generation)
 
 Developer and Maintainer: Dev Desai (`DevDesai-444`)
-
-Paper reference: [MAGE: A Multi-Agent Engine for Automated RTL Code Generation](https://arxiv.org/abs/2412.07822)
 
 ## 1) Project Overview
 
@@ -290,21 +288,6 @@ vvp -V
 - Inspect generated `tb.sv` and `rtl.sv` under per-task output directory.
 - Check `sim_review_output.json` and logs for mismatch signatures.
 
-## 15) Citation
-
-If you use this pipeline in research or benchmarking, cite:
-
-```bibtex
-@misc{wang2024mage,
-  title={MAGE: A Multi-Agent Engine for Automated RTL Code Generation},
-  author={Xinyi Wang and Haochen Zhang and Xinyu Zhang and Xiaolong Wang},
-  year={2024},
-  eprint={2412.07822},
-  archivePrefix={arXiv},
-  primaryClass={cs.AI}
-}
-```
-
-## 16) License
+## 15) License
 
 This repository is under the MIT License. See `LICENSE`.
