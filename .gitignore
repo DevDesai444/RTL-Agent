@@ -1,0 +1,8 @@
+benchmark_run.log
+key.cfg
+
+src/mage.egg-info/
+src/mage/__pycache__/
+
+log_verilog_eval_v2_*/
+output_verilog_eval_v2_*/
