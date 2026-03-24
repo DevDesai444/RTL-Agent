@@ -33,17 +33,17 @@ It is built around a coordinated agent pipeline:
 
 ```mermaid
 flowchart TD
-    A[Input Spec] --> B[TBGenerator]
-    B --> C[RTLGenerator]
-    C --> D[Syntax Check (iverilog -t null)]
-    D -->|Pass| E[Simulation Review]
+    A["Input Spec"] --> B["TBGenerator"]
+    B --> C["RTLGenerator"]
+    C --> D["Syntax Check (iverilog -t null)"]
+    D -->|Pass| E["Simulation Review"]
     D -->|Fail| C
-    E -->|SIMULATION PASSED| Z[Return RTL]
-    E -->|Fail| F[SimJudge]
+    E -->|SIMULATION PASSED| Z["Return RTL"]
+    E -->|Fail| F["SimJudge"]
     F -->|TB needs fix| B
-    F -->|TB OK| G[Generate RTL Candidates]
-    G --> H[Select best mismatch candidates]
-    H --> I[RTLEditor action loop]
+    F -->|TB OK| G["Generate RTL Candidates"]
+    G --> H["Select best mismatch candidates"]
+    H --> I["RTLEditor action loop"]
     I --> E
 ```
 
