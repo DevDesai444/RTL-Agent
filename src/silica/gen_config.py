@@ -5,6 +5,7 @@ from google.oauth2 import service_account
 from llama_index.core.llms.llm import LLM
 from llama_index.llms.anthropic import Anthropic
 from llama_index.llms.openai import OpenAI
+from llama_index.llms.openai_like import OpenAILike
 from llama_index.llms.vertex import Vertex
 from pydantic import BaseModel
 
@@ -50,7 +51,7 @@ def get_llm(**kwargs) -> LLM:
 
         except Exception as e:
             raise Exception(f"gen_config: Failed to get {provider} LLM") from e
-    elif kwargs["provider"] == "openai":
+    elif provider == "openai":
         try:
             llm: LLM = OpenAI(
                 model=kwargs["model"],
@@ -58,6 +59,30 @@ def get_llm(**kwargs) -> LLM:
                 max_tokens=kwargs["max_token"],
             )
 
+        except Exception as e:
+            raise Exception(f"gen_config: Failed to get {provider} LLM") from e
+    elif provider == "groq":
+        try:
+            llm: LLM = OpenAILike(
+                model=kwargs["model"],
+                api_key=cfg["GROQ_API_KEY"],
+                api_base="https://api.groq.com/openai/v1",
+                max_tokens=kwargs["max_token"],
+                is_chat_model=True,
+                context_window=131072,
+            )
+        except Exception as e:
+            raise Exception(f"gen_config: Failed to get {provider} LLM") from e
+    elif provider == "cerebras":
+        try:
+            llm: LLM = OpenAILike(
+                model=kwargs["model"],
+                api_key=cfg["CEREBRAS_API_KEY"],
+                api_base="https://api.cerebras.ai/v1",
+                max_tokens=kwargs["max_token"],
+                is_chat_model=True,
+                context_window=131072,
+            )
         except Exception as e:
             raise Exception(f"gen_config: Failed to get {provider} LLM") from e
     elif kwargs["provider"] == "vertex":
