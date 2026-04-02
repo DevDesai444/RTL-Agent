@@ -21,23 +21,19 @@ logger = get_logger(__name__)
 
 
 args_dict = {
-    "provider": "vertexanthropic",
-    "model": "claude-3-7-sonnet@20250219",
-    # "model": "gemini-2.0-flash-001",
-    # "model": "claude-3-7-sonnet-20250219",
-    # "model": "gpt-4o-2024-08-06",
-    # "filter_instance": "^(Prob070_ece241_2013_q2|Prob151_review2015_fsm)$",
-    "filter_instance": "^(Prob011_norgate)$",
-    # "filter_instance": "^(.*)$",
+    "provider": "cerebras",
+    "model": "qwen-3-235b-a22b-instruct-2507",
+    "filter_instance": "^(.*)$",  # full 156-task VerilogEval-Human v2 run
     "type_benchmark": "verilog_eval_v2",
     "path_benchmark": "./verilog-eval",
-    "run_identifier": "your_run_identifier",
+    "run_identifier": "verilog_eval_v2_cerebras_qwen3_ablation",
     "n": 1,
     "temperature": 0.85,
     "top_p": 0.95,
-    "max_token": 8192,
-    "use_golden_tb_in_mage": True,
+    "max_token": 2048,
+    "use_golden_tb_in_mage": False,  # ablation: no golden TB injection
     "key_cfg_path": "./key.cfg",
+    "ablation": True,  # single RTL generation pass, no retry loops
 }
 
 
@@ -67,6 +63,14 @@ def run_round(args: argparse.Namespace, llm: LLM):
     agent.set_output_path(f"./output_{args.run_identifier}")
     agent.set_log_path(f"./log_{args.run_identifier}")
     agent.set_redirect_log(True)
+    if hasattr(args, "sim_max_retry"):
+        agent.sim_max_retry = args.sim_max_retry
+    if hasattr(args, "rtl_max_candidates"):
+        agent.rtl_max_candidates = args.rtl_max_candidates
+    if hasattr(args, "rtl_selected_candidates"):
+        agent.rtl_selected_candidates = args.rtl_selected_candidates
+    if hasattr(args, "ablation") and args.ablation:
+        agent.set_ablation(True)
     # agent.set_ablation(True)
     record_file = f"./output_{args.run_identifier}/record.json"
     record_json: Dict[str, Dict[str, Any]] = {"record_per_run": {}, "total_record": {}}
