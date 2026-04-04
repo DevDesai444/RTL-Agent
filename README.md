@@ -1,63 +1,120 @@
-# RTL-Agent (Multi-Agent RTL Generation)
+# RTL-Agent
 
-Developer and Maintainer: Dev Desai (`DevDesai-444`)
+RTL-Agent is a multi-agent LLM system for generating synthesizable SystemVerilog RTL from natural-language hardware specifications, validating the design against executable testbenches, and iteratively repairing failures using simulation feedback.
 
-## 1) Project Overview
+This project sits at the intersection of:
+- AI agents
+- hardware design automation
+- benchmark-driven evaluation
+- verifiable code generation
 
-RTL-Agent is a Python-based multi-agent system that turns natural-language hardware specs into SystemVerilog RTL, then iteratively validates and repairs the output using generated (or benchmark-provided) testbenches and simulation feedback.
+Instead of treating RTL generation as a single prompt-response task, RTL-Agent decomposes the problem into specialized roles that generate test infrastructure, draft RTL, run simulation, diagnose failures, and patch the design until it converges or exhausts a bounded repair budget.
 
-It is built around a coordinated agent pipeline:
-- `TBGenerator` creates or adapts a testbench and interface.
-- `RTLGenerator` generates candidate RTL with syntax-aware retries.
-- `SimReviewer` compiles and simulates (`iverilog` + `vvp`) and scores mismatches.
-- `SimJudge` decides whether failures are likely testbench-related.
-- `RTLEditor` applies targeted RTL patch actions if mismatches persist.
-- `TopAgent` orchestrates all stages, retries, logging, token/cost tracking, and artifacts.
+![RTL-Agent overview](/Users/DEVDESAI1/Desktop/University_at_Buffalo/Projects/RTL-Agent/fig/DAC-overview.png)
 
-## 2) What The System Uses, How It Uses It, and Why
+## Why this project matters
 
-| Component | What is used | How it is used | Why it is used |
-|---|---|---|---|
-| Runtime | Python 3.11+ | Core orchestration and tooling | Mature ecosystem and strong LLM integration support |
-| LLM abstraction | `llama-index` LLM interfaces | Unified chat calls across Anthropic/OpenAI/Vertex | One codepath for multiple providers |
-| Model providers | Anthropic, OpenAI, Vertex, VertexAnthropic wrapper | `mage/gen_config.py::get_llm` builds provider-specific clients | Provider/model flexibility for experimentation |
-| Schema validation | `pydantic` | Typed parsing of model JSON outputs and subprocess payloads | Defensive parsing, fewer silent failures |
-| Simulation/syntax | Icarus Verilog (`iverilog`) + `vvp` | Compile/syntax checks and simulation pass/fail determination | Fast feedback loop for RTL correctness |
-| Coverage flow (optional) | Verilator + `verilator_coverage` + C++ helpers | Experimental coverage-guided input generation (`src/mage/converage`) | Improves test stimulus coverage exploration |
-| Logging | `rich.logging` + file handlers | Structured logs to stdout and per-run files | Debuggability and reproducibility |
-| Token accounting | `tiktoken`, Anthropic usage metadata, Vertex token counting | Tracks per-module token usage and estimated USD cost | Experiment budgeting and analysis |
-| Config loading | `config` package + env vars | Reads `key.cfg` with env fallback | Simple credential management |
-| Automation in CI | Composite GitHub Action (`action.yml`) | Installs/runs pre-commit with cache | Standardized lint/format checks in workflows |
+LLMs can often produce plausible-looking RTL that is syntactically valid but behaviorally incorrect. In digital design, that gap matters more than surface fluency. A design that compiles but fails under simulation is still wrong.
 
-## 3) Architecture and Execution Pipeline
+RTL-Agent was built around a simple idea:
+
+> correctness should be driven by executable feedback, not by confidence in the generated text.
+
+That idea leads to three design choices:
+- use a multi-stage agent pipeline rather than a single monolithic prompt
+- treat simulation as the main source of truth
+- preserve artifacts, logs, and benchmark outputs so every run is inspectable
+
+## What RTL-Agent does
+
+Given a benchmark problem or a free-form RTL task, RTL-Agent can:
+- read a natural-language specification
+- derive or adapt a testbench and interface
+- generate candidate RTL implementations
+- run syntax and simulation checks with Icarus Verilog
+- identify likely failure modes
+- decide whether the issue is in the testbench or in the RTL
+- patch the RTL iteratively using targeted edits
+- record token usage, cost estimates, runtime, and per-task artifacts
+
+## System architecture
+
+RTL-Agent is organized as a coordinator plus a set of specialized worker agents.
 
 ```mermaid
 flowchart TD
-    A["Input Spec"] --> B["TBGenerator"]
-    B --> C["RTLGenerator"]
-    C --> D["Syntax Check (iverilog -t null)"]
-    D -->|Pass| E["Simulation Review"]
-    D -->|Fail| C
-    E -->|SIMULATION PASSED| Z["Return RTL"]
-    E -->|Fail| F["SimJudge"]
-    F -->|TB needs fix| B
-    F -->|TB OK| G["Generate RTL Candidates"]
-    G --> H["Select best mismatch candidates"]
-    H --> I["RTLEditor action loop"]
-    I --> E
+    A["Natural-language RTL spec"] --> B["TBGenerator"]
+    A --> C["RTLGenerator"]
+    B --> D["Testbench + interface artifacts"]
+    C --> E["Initial RTL candidate"]
+    D --> F["SimReviewer"]
+    E --> F
+    F -->|Pass| G["Accepted RTL"]
+    F -->|Fail| H["SimJudge"]
+    H -->|Testbench issue| B
+    H -->|RTL issue| I["Candidate generation"]
+    I --> J["Rank by mismatch count"]
+    J --> K["RTLEditor"]
+    K --> F
 ```
 
-### Core orchestration (`src/mage/agent.py`)
+### Core components
 
-`TopAgent.run()` creates per-task output/log directories and executes `_run()` with full lifecycle control:
-- Initializes `SimReviewer`, `RTLGenerator`, `TBGenerator`, `SimJudge`, `RTLEditor`.
-- Generates initial TB/interface, then initial RTL.
-- Runs up to `sim_max_retry=4` TB-fix cycles when simulation fails.
-- If RTL still fails, generates up to `rtl_max_candidates=20` candidates and ranks by mismatch count.
-- Runs editor refinement on top `rtl_selected_candidates=2` unique mismatch buckets.
-- Writes `properly_finished.tag` when run completes without runtime crash.
+| Component | Responsibility | Why it exists |
+|---|---|---|
+| `TopAgent` | Orchestrates the full lifecycle of a run | Keeps the workflow deterministic and bounded |
+| `TBGenerator` | Produces a testbench and interface scaffold | Gives the RTL generator executable context |
+| `RTLGenerator` | Generates the initial RTL and additional candidates | Explores multiple implementations under the same spec |
+| `SimReviewer` | Compiles and simulates the design | Converts textual generation into a hard pass/fail signal |
+| `SimJudge` | Decides whether failure likely comes from TB or RTL | Prevents wasted repair loops on the wrong artifact |
+| `RTLEditor` | Applies focused corrective edits to RTL | Adds a repair phase instead of restarting from scratch |
+| `TokenCounter` | Tracks token usage and estimated provider cost | Makes experimentation measurable and budget-aware |
 
-## 4) Repository Map
+## End-to-end execution flow
+
+At a high level, an RTL-Agent run follows this lifecycle:
+
+```mermaid
+sequenceDiagram
+    participant U as User or Benchmark
+    participant T as TopAgent
+    participant B as TBGenerator
+    participant R as RTLGenerator
+    participant S as SimReviewer
+    participant J as SimJudge
+    participant E as RTLEditor
+
+    U->>T: Provide hardware spec
+    T->>B: Generate testbench and interface
+    B-->>T: tb.sv + if.sv
+    T->>R: Generate RTL candidate
+    R-->>T: rtl.sv
+    T->>S: Compile and simulate
+    S-->>T: pass/fail + mismatch log
+    alt Simulation passed
+        T-->>U: Return accepted RTL
+    else Simulation failed
+        T->>J: Attribute failure source
+        alt Testbench likely wrong
+            J-->>T: regenerate TB
+            T->>B: repair TB
+        else RTL likely wrong
+            J-->>T: try RTL repair path
+            T->>R: generate more candidates
+            T->>E: targeted RTL edits
+        end
+    end
+```
+
+### Design intent behind the workflow
+
+This pipeline is intentionally conservative:
+- syntax is checked before deeper repair work
+- simulation output is treated as the governing signal
+- retries are bounded to avoid unproductive loops
+- candidate generation and editing are both available, because some failures need exploration while others need local patching
+
+## Repository structure
 
 ```text
 RTL-Agent/
@@ -65,229 +122,341 @@ RTL-Agent/
   LICENSE
   pyproject.toml
   action.yml
-  testbench_generate.ipynb
-  fig/                          # paper/experiment figures
+  fig/
   src/
     mage/
-      agent.py                  # top-level orchestration
-      tb_generator.py           # testbench + interface generation
-      rtl_generator.py          # RTL generation + syntax retries + candidates
-      rtl_editor.py             # tool-action based RTL patch loop
-      sim_reviewer.py           # syntax/simulation execution and scoring
-      sim_judge.py              # TB-vs-RTL fault attribution
-      token_counter.py          # token/cost/accounting, cache-aware mode
-      gen_config.py             # provider/key/model bootstrapping
-      prompts.py                # few-shot and strict JSON output prompts
-      benchmark_read_helper.py  # verilog-eval dataset loading/filtering
-      bash_tools.py             # subprocess wrapper
-      log_utils.py              # stdout/file logger switcher
-      utils.py                  # helper funcs + VertexAnthropic credentials wrapper
-      converage/                # experimental C++/Python coverage guidance (note spelling)
-  src/sim/
-    Makefile, Makefile_obj, top.sv, input.vc, sim_golden.vvp
+      agent.py
+      benchmark_read_helper.py
+      bash_tools.py
+      gen_config.py
+      log_utils.py
+      prompts.py
+      rtl_editor.py
+      rtl_generator.py
+      sim_judge.py
+      sim_reviewer.py
+      tb_generator.py
+      token_counter.py
+      utils.py
+    sim/
+      Makefile
+      Makefile_obj
+      top.sv
+      input.vc
+      sim_golden.vvp
   tests/
-    test_top_agent.py           # main benchmark harness
-    test_rtl_generator.py       # generator smoke test
-    test_llm_chat.py            # provider connectivity sanity check
-    test_single_agent.py        # legacy experimental script
+    test_llm_chat.py
+    test_rtl_generator.py
+    test_single_agent.py
+    test_top_agent.py
+  verilog-eval/
 ```
 
-## 5) Prerequisites
+## Technical deep dive
 
-### Required
-- Python `>=3.11`
-- Icarus Verilog 12.x (`iverilog`, `vvp`) available on `PATH`
+### 1. `TopAgent`: the orchestrator
 
-### Optional (for extended workflows)
-- Verilator (coverage-guided flow in `src/mage/converage`)
-- Pyverilog (used by optional coverage guidance flow)
+[`src/mage/agent.py`](/Users/DEVDESAI1/Desktop/University_at_Buffalo/Projects/RTL-Agent/src/mage/agent.py) owns the high-level control flow. It:
+- creates per-run output and log directories
+- initializes all worker modules
+- executes either the full multi-agent flow or an ablation path
+- enforces retry budgets such as `sim_max_retry`, `rtl_max_candidates`, and `rtl_selected_candidates`
+- persists task-level artifacts like `tb.sv`, `if.sv`, `rtl.sv`, and `properly_finished.tag`
 
-## 6) Setup
+The main architectural value of `TopAgent` is that it turns several individually useful modules into a repeatable experimental system.
 
-### 6.1 Clone and install
+### 2. `TBGenerator`: executable context generation
+
+[`src/mage/tb_generator.py`](/Users/DEVDESAI1/Desktop/University_at_Buffalo/Projects/RTL-Agent/src/mage/tb_generator.py) generates:
+- a SystemVerilog testbench
+- the interface or module signature
+
+This matters because LLM-generated RTL quality improves when the model sees the shape of expected interaction, not just a prose description.
+
+### 3. `RTLGenerator`: syntax-aware implementation search
+
+[`src/mage/rtl_generator.py`](/Users/DEVDESAI1/Desktop/University_at_Buffalo/Projects/RTL-Agent/src/mage/rtl_generator.py) handles:
+- initial RTL generation
+- syntax retry loops
+- candidate batch generation for later ranking
+- an ablation mode that isolates single-pass RTL generation
+
+This lets the project measure two regimes:
+- full multi-agent repair
+- reduced single-pass generation for comparison
+
+### 4. `SimReviewer`: hard correctness signal
+
+[`src/mage/sim_reviewer.py`](/Users/DEVDESAI1/Desktop/University_at_Buffalo/Projects/RTL-Agent/src/mage/sim_reviewer.py) is the verification core. It:
+- runs syntax checks with `iverilog -t null`
+- compiles executable simulation payloads
+- runs the design under simulation
+- parses failure patterns and mismatch counts
+
+This is the module that converts speculative generation into measurable behavior.
+
+### 5. `SimJudge`: fault attribution
+
+[`src/mage/sim_judge.py`](/Users/DEVDESAI1/Desktop/University_at_Buffalo/Projects/RTL-Agent/src/mage/sim_judge.py) uses model reasoning to answer a crucial systems question:
+
+Is the current failure more likely due to a flawed testbench or flawed RTL?
+
+That distinction improves repair efficiency because otherwise the pipeline can spend compute patching the wrong artifact.
+
+### 6. `RTLEditor`: targeted recovery instead of restart
+
+[`src/mage/rtl_editor.py`](/Users/DEVDESAI1/Desktop/University_at_Buffalo/Projects/RTL-Agent/src/mage/rtl_editor.py) applies constrained edit actions to a failing RTL candidate. This module is important because many generated designs are close to correct. In those cases, local repair is often cheaper and more stable than full regeneration.
+
+### 7. `TokenCounter`: experimental observability
+
+[`src/mage/token_counter.py`](/Users/DEVDESAI1/Desktop/University_at_Buffalo/Projects/RTL-Agent/src/mage/token_counter.py) tracks:
+- input token count
+- output token count
+- provider-specific cost heuristics
+- cache-aware token accounting where available
+
+This makes the system useful not just as a prototype, but as an experimental platform where performance can be discussed alongside inference cost.
+
+## Model and provider support
+
+RTL-Agent uses `llama-index` abstractions to normalize calls across multiple LLM backends. The current codebase supports:
+- Anthropic
+- OpenAI
+- Vertex AI
+- Vertex Anthropic bridge
+- Groq via OpenAI-compatible API
+- Cerebras via OpenAI-compatible API
+
+Provider setup is handled in [`src/mage/gen_config.py`](/Users/DEVDESAI1/Desktop/University_at_Buffalo/Projects/RTL-Agent/src/mage/gen_config.py).
+
+This flexibility matters for benchmarking because the project is not tied to a single inference vendor or model family.
+
+## Benchmarks
+
+RTL-Agent is designed around the `verilog-eval` benchmark suite included in this repository under [verilog-eval](/Users/DEVDESAI1/Desktop/University_at_Buffalo/Projects/RTL-Agent/verilog-eval).
+
+The benchmark helper in [`src/mage/benchmark_read_helper.py`](/Users/DEVDESAI1/Desktop/University_at_Buffalo/Projects/RTL-Agent/src/mage/benchmark_read_helper.py) supports:
+- `verilog_eval_v1`
+- `verilog_eval_v2`
+
+### Dataset organization
+
+| Benchmark mode | Dataset folder | Purpose |
+|---|---|---|
+| `verilog_eval_v1` | `dataset_code-complete-iccad2023` | code-completion style RTL tasks |
+| `verilog_eval_v2` | `dataset_spec-to-rtl` | specification-to-RTL generation tasks |
+
+### Benchmark runner
+
+The main benchmark harness lives in [`tests/test_top_agent.py`](/Users/DEVDESAI1/Desktop/University_at_Buffalo/Projects/RTL-Agent/tests/test_top_agent.py).
+
+It currently includes a Cerebras/Qwen ablation configuration for:
+- provider: `cerebras`
+- model: `qwen-3-235b-a22b-instruct-2507`
+- benchmark: `verilog_eval_v2`
+- task selection: full 156-task sweep
+- ablation mode: enabled
+- golden testbench injection: disabled
+
+## Results snapshot
+
+This repository currently contains one directly inspectable benchmark artifact:
+
+- run: `output_verilog_eval_v2_cerebras_qwen3_ablation_0`
+- benchmark: VerilogEval-Human v2
+- tasks evaluated: `156`
+- recorded passes: `0`
+- total runtime: `1:23:14.384274`
+- token limit consumption: `482431`
+
+Source artifact:
+- [output_verilog_eval_v2_cerebras_qwen3_ablation_0/record.json](/Users/DEVDESAI1/Desktop/University_at_Buffalo/Projects/RTL-Agent/output_verilog_eval_v2_cerebras_qwen3_ablation_0/record.json)
+
+### How to interpret that result
+
+This is not presented as a success benchmark. It is a baseline artifact.
+
+The current ablation configuration intentionally disables most of the system behavior that makes RTL-Agent interesting:
+- no golden testbench injection
+- no iterative multi-agent repair loop
+- no candidate ranking and editor-based recovery inside the ablation path
+
+So the `0/156` outcome should be read as:
+- a useful lower bound for single-pass spec-to-RTL generation in this configuration
+- evidence that raw generation alone is insufficient
+- motivation for the full multi-agent repair architecture
+
+## Research hypotheses
+
+The project is built around the following hypotheses:
+
+### Hypothesis 1
+
+Multi-agent decomposition should outperform single-pass RTL generation on behavioral correctness.
+
+Rationale:
+- testbench generation and repair require different reasoning than RTL synthesis
+- simulation feedback is more useful when different agents specialize in interpreting it
+
+### Hypothesis 2
+
+Candidate generation plus mismatch-based ranking should recover from more failures than naive regeneration.
+
+Rationale:
+- multiple syntactically valid candidates expose behavioral diversity
+- mismatch count provides a pragmatic ranking signal even before perfect correctness
+
+### Hypothesis 3
+
+Targeted RTL editing should improve efficiency over restarting the entire generation process.
+
+Rationale:
+- many failures are local rather than architectural
+- patching is cheaper than full re-synthesis when the design is close
+
+### Hypothesis 4
+
+Executable verification artifacts are necessary for credible LLM-for-hardware systems.
+
+Rationale:
+- human-readable RTL can still be semantically wrong
+- compile and simulation steps create an objective acceptance criterion
+
+## Experimental methodology
+
+A typical evaluation loop for this project is:
+
+1. Select a benchmark subset or full benchmark split.
+2. Fix provider, model, temperature, and token budget.
+3. Run either ablation mode or the full multi-agent flow.
+4. Save all task-level outputs and logs.
+5. Measure pass rate, runtime, token usage, and cost.
+6. Inspect hard failures to determine whether the bottleneck is generation, verification, or repair policy.
+
+## Artifact layout
+
+Each benchmark run produces two main folders:
+- `output_<run_identifier>/`
+- `log_<run_identifier>/`
+
+For each task, you will typically see:
+- `tb.sv`
+- `if.sv`
+- `rtl.sv`
+- `sim_review_output.json`
+- `properly_finished.tag`
+
+This structure makes the system useful for postmortem analysis, not just one-shot execution.
+
+## Tooling stack
+
+| Layer | Tools |
+|---|---|
+| Language runtime | Python 3.11+ |
+| LLM abstraction | `llama-index` |
+| Model providers | Anthropic, OpenAI, Vertex, Groq, Cerebras |
+| Verification | Icarus Verilog (`iverilog`, `vvp`) |
+| Packaging | `setuptools`, `pyproject.toml` |
+| Validation and typing | `pydantic` |
+| Token accounting | `tiktoken` and provider metadata |
+| Automation | `pre-commit`, GitHub composite action |
+
+## Setup
+
+### Requirements
+
+- Python `>= 3.11`
+- `iverilog`
+- `vvp`
+
+Optional:
+- Verilator for the experimental coverage-guided flow
+
+### Install
 
 ```bash
-git clone <your-repo-url>
+git clone <repo-url>
 cd RTL-Agent
 python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
-pip install .
+pip install -e .
 ```
 
-Developer install:
+### API credentials
 
-```bash
-pip install -e . --config-settings editable_mode=compat
-```
+The runtime reads `key.cfg` first, then falls back to environment variables.
 
-### 6.2 Configure API keys
-
-The runtime checks `key.cfg` first, then environment variables.
-
-Create `key.cfg` in repo root (example):
+Example:
 
 ```ini
 OPENAI_API_KEY='...'
 ANTHROPIC_API_KEY='...'
+GROQ_API_KEY='...'
+CEREBRAS_API_KEY='...'
 VERTEX_SERVICE_ACCOUNT_PATH='~/path/to/service-account.json'
 VERTEX_REGION='us-central1'
-OPENAI_API_BASE_URL=''
 ```
 
-Or export equivalent env vars.
+## Usage
 
-## 7) Benchmark Data (verilog-eval)
-
-Test harnesses expect a local `verilog-eval` checkout path (configured in test args):
-- V1 folder: `dataset_code-complete-iccad2023`
-- V2 folder: `dataset_spec-to-rtl`
-
-This repository currently includes an empty `verilog-eval/` directory placeholder. Populate it before benchmark runs.
-
-## 8) Running The System
-
-### 8.1 Main multi-agent benchmark run
-
-Primary entry point:
+### Main benchmark execution
 
 ```bash
 python tests/test_top_agent.py
 ```
 
-Control parameters are in `tests/test_top_agent.py::args_dict`:
-- `provider`: `anthropic`, `openai`, `vertex`, `vertexanthropic`
-- `model`: provider-specific model name
-- `filter_instance`: regex to select benchmark tasks
-- `type_benchmark`: `verilog_eval_v1` or `verilog_eval_v2`
-- `path_benchmark`: local verilog-eval path
-- `run_identifier`: names output/log dirs
-- `n`: number of rounds
-- `temperature`, `top_p`
-- `max_token`
-- `use_golden_tb_in_mage`: whether to seed TB generation from golden TB
-- `key_cfg_path`: credential file path
-
-### 8.2 Focused smoke tests
+### Focused checks
 
 ```bash
 python tests/test_llm_chat.py
 python tests/test_rtl_generator.py
 ```
 
-## 9) Outputs and Artifacts
+## Engineering decisions worth calling out
 
-Per run, output is created under:
-- `output_<run_identifier>/`
-- `log_<run_identifier>/`
+### 1. The project optimizes for inspectability
 
-Per task directory pattern:
-- `output_<run_identifier>/<BENCHMARK>_<TASK_ID>/`
+The repository preserves logs, outputs, and benchmark interfaces so runs can be audited after the fact.
 
-Typical files:
-- `tb.sv` (generated testbench)
-- `if.sv` (generated module interface)
-- `rtl.sv` (best RTL candidate)
-- `sim_output.vvp` or `sim_golden.vvp` (sim binaries)
-- `sim_review_output.json` (golden review result)
-- `properly_finished.tag` (run completion marker)
-- `record.json` in output root (aggregated run stats)
+### 2. Verification is built into the generation loop
 
-## 10) Module-Level Technical Details
+This is not a plain text-generation demo. The core loop is grounded in compiler and simulator feedback.
 
-### `src/mage/rtl_generator.py`
-- Builds prompt context from spec + optional TB + optional interface + failed trial history.
-- Enforces strict JSON response parsing (`reasoning`, `module`).
-- Performs syntax-check retry loop (`max_trials=5`) using `check_syntax`.
-- Supports candidate batch generation (`gen_candidates`) for diversity under fixed context.
+### 3. The system is benchmark-oriented
 
-### `src/mage/tb_generator.py`
-- Generates testbench and interface with strict JSON output schema.
-- Supports two modes:
-  - Non-golden TB generation.
-  - Golden TB augmentation mode (preserves golden semantics while adding diagnostics).
-- Can switch mismatch reporting strategy between queue-based and moment-based displays.
+The codebase is structured so new models and providers can be tested against the same task corpus.
 
-### `src/mage/sim_reviewer.py`
-- `check_syntax`: syntax compile gate using `iverilog -t null`.
-- `sim_review`: compile+run with `iverilog` and `vvp`; pass requires `SIMULATION PASSED` marker.
-- Parses mismatch count from `SIMULATION FAILED - X MISMATCHES DETECTED`.
-- Filters known benign stderr lines.
+### 4. The architecture is intentionally modular
 
-### `src/mage/sim_judge.py`
-- LLM-based adjudication: should TB be fixed, or proceed to RTL repair?
-- Uses failed log + failed RTL + failed TB + spec as evidence.
+Each sub-agent can be replaced, extended, or ablated independently, which makes the project suitable for experimentation and future research.
 
-### `src/mage/rtl_editor.py`
-- Tool-action loop (currently `replace_content_by_matching`) with rollback safeguards.
-- Rejects edits that increase mismatch count or break syntax.
-- Keeps bounded success/failure context windows to control prompt size.
+## Current limitations
 
-### `src/mage/token_counter.py`
-- Provider-aware token counting and model cost estimation.
-- Anthropic cache-aware subclass tracks cache read/write usage and equivalent costs.
-- Logs per-agent and total token/cost stats.
+- The included ablation result is a baseline, not a polished SOTA claim.
+- Token cost tables are incomplete for some newly added providers and models.
+- The benchmark harness is currently script-driven rather than packaged as a CLI.
+- The `converage` directory is experimental and depends on additional external setup.
+- Some provider integrations are newer than others and need broader evaluation coverage.
 
-### `src/mage/gen_config.py`
-- Constructs provider-specific LLM clients.
-- Supports OpenAI, Anthropic, Vertex Gemini, and VertexAnthropic bridge.
-- Performs a startup health check call (`complete("Say 'Hi'")`).
+## Next steps
 
-### `src/mage/log_utils.py`
-- Central logger factory with switchable stdout/file modes.
-- Produces per-module logs and a unified run log file when file mode is enabled.
+Planned or natural next directions for this project include:
+- running the full non-ablation multi-agent pipeline on VerilogEval-Human v2
+- comparing pass rate across Anthropic, OpenAI-compatible, and Vertex backends
+- measuring repair-stage contribution versus single-pass generation
+- adding structured experiment configs instead of editing Python dictionaries
+- expanding cost accounting for newer OpenAI-compatible inference providers
+- generating publication-quality benchmark summary tables directly from `record.json`
 
-## 11) Optional Coverage-Guided Subsystem (`src/mage/converage`)
+## Summary
 
-This folder contains an experimental C++/Python guidance path for Verilator coverage-driven stimulus generation.
+RTL-Agent is not just an LLM wrapper for hardware code generation. It is a verification-aware, multi-agent experimental system for turning natural-language design intent into executable RTL artifacts and then stress-testing those artifacts against benchmark-driven simulation loops.
 
-Important notes:
-- The directory name is `converage` in code (intentional as currently implemented).
-- It expects external companion paths (e.g., `../llm-guidance`, `../src-basic`) not included in this repository.
-- It uses pipe/file-based communication with `RunGPT.py` and OpenAI chat completions.
-- Treat as an advanced extension path, not the default benchmark pipeline.
+The strongest part of the project is the architecture:
+- decomposition into specialized agents
+- simulation-grounded feedback
+- bounded repair loops
+- benchmark instrumentation and artifact retention
 
-## 12) GitHub Action (Pre-Commit)
-
-`action.yml` defines a reusable composite action that:
-- installs `pre-commit`
-- caches `~/.cache/pre-commit`
-- runs `pre-commit run` with configurable args (`--all-files` by default)
-
-Use this action from workflows to standardize repo checks.
-
-## 13) Known Constraints and Practical Caveats
-
-- Benchmark data is external and must be provided locally.
-- LLM quality and determinism depend on provider/model and sampling settings.
-- Strict JSON prompting reduces parser errors but cannot eliminate them; retry logic handles this.
-- `tests/test_single_agent.py` is legacy/experimental and may not reflect current mainline APIs.
-- Large benchmark runs may be token/cost intensive; use `filter_instance` aggressively for targeted experiments.
-
-## 14) Troubleshooting
-
-### `iverilog` not found
-Install Icarus Verilog 12.x and verify:
-
-```bash
-iverilog -V
-vvp -V
-```
-
-### Provider init fails
-- Verify key path and env vars.
-- Confirm model identifier exists for the selected provider.
-- Check `key.cfg` formatting (no malformed quoting).
-
-### JSON decode failures in generation
-- Reduce temperature/top_p.
-- Use stronger models for structured output.
-- Re-run with narrower task filters.
-
-### Simulation never reaches pass condition
-- Inspect generated `tb.sv` and `rtl.sv` under per-task output directory.
-- Check `sim_review_output.json` and logs for mismatch signatures.
-
-## 15) License
-
-This repository is under the MIT License. See `LICENSE`.
+The current included benchmark snapshot is intentionally candid. It shows where raw ablation performance stands today and why the full repair-oriented architecture is the right direction.
