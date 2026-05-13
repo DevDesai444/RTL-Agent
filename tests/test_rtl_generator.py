@@ -3,15 +3,15 @@
 import argparse
 import os
 
-from mage.benchmark_read_helper import (
+from silica.benchmark_read_helper import (
     TypeBenchmark,
     TypeBenchmarkFile,
     get_benchmark_contents,
 )
-from mage.gen_config import get_llm, set_exp_setting
-from mage.log_utils import get_logger
-from mage.rtl_generator import RTLGenerator
-from mage.token_counter import TokenCounter, TokenCounterCached
+from silica.gen_config import get_llm, set_exp_setting
+from silica.log_utils import get_logger
+from silica.rtl_generator import RTLGenerator
+from silica.token_counter import TokenCounter, TokenCounterCached
 
 logger = get_logger(__name__)
 

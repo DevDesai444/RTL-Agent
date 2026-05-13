@@ -1,7 +1,7 @@
 import argparse
 
-from mage.gen_config import get_llm
-from mage.log_utils import get_logger
+from silica.gen_config import get_llm
+from silica.log_utils import get_logger
 
 logger = get_logger(__name__)
 

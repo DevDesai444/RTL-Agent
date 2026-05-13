@@ -6,16 +6,16 @@ from typing import Any, Dict
 
 from llama_index.core.llms import LLM
 
-from mage.agent import TopAgent
-from mage.benchmark_read_helper import (
+from silica.agent import TopAgent
+from silica.benchmark_read_helper import (
     TypeBenchmark,
     TypeBenchmarkFile,
     get_benchmark_contents,
 )
-from mage.gen_config import get_llm, set_exp_setting
-from mage.log_utils import get_logger
-from mage.sim_reviewer import sim_review_golden_benchmark
-from mage.token_counter import TokenCount
+from silica.gen_config import get_llm, set_exp_setting
+from silica.log_utils import get_logger
+from silica.sim_reviewer import sim_review_golden_benchmark
+from silica.token_counter import TokenCount
 
 logger = get_logger(__name__)
 
@@ -31,7 +31,7 @@ args_dict = {
     "temperature": 0.85,
     "top_p": 0.95,
     "max_token": 2048,
-    "use_golden_tb_in_mage": False,  # ablation: no golden TB injection
+    "use_golden_tb_in_silica": False,  # ablation: no golden TB injection
     "key_cfg_path": "./key.cfg",
     "ablation": True,  # single RTL generation pass, no retry loops
 }
@@ -88,10 +88,10 @@ def run_round(args: argparse.Namespace, llm: LLM):
             task_id=task_id,
             spec=spec,
             golden_tb_path=(
-                golden_tb_path_dict[task_id] if args.use_golden_tb_in_mage else None
+                golden_tb_path_dict[task_id] if args.use_golden_tb_in_silica else None
             ),
             golden_rtl_blackbox_path=(
-                golden_rtl_path_dict[task_id] if args.use_golden_tb_in_mage else None
+                golden_rtl_path_dict[task_id] if args.use_golden_tb_in_silica else None
             ),
         )
         run_time = timedelta(seconds=time.monotonic() - start_time)
