@@ -149,7 +149,7 @@ class TokenCounter:
         else:
             logger.warning(
                 f"Cannot find tokenizer for model '{model}'. "
-                "May need to change mage.token_counter.TokenCounter.__init__"
+                "May need to change silica.token_counter.TokenCounter.__init__"
             )
             self.encoding = None
             self.token_cost = TokenCost()
@@ -159,7 +159,7 @@ class TokenCounter:
             self.token_cost = TokenCost()
             logger.warning(
                 f"Cannot find token cost for model '{model}' in record. "
-                "May need to append to mage.token_counter.TOKEN_COSTS"
+                "May need to append to silica.token_counter.TOKEN_COSTS"
             )
             return
         self.token_cost = TOKEN_COSTS[model]

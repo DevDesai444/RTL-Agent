@@ -272,7 +272,7 @@ class TopAgent:
         os.makedirs(self.output_dir_per_run, exist_ok=True)
         set_log_dir(log_dir_per_run)
         if self.redirect_log:
-            with open(f"{log_dir_per_run}/mage_rtl.log", "w") as f:
+            with open(f"{log_dir_per_run}/silica_rtl.log", "w") as f:
                 sys.stdout = f
                 sys.stderr = f
                 result = self._run(spec)
@@ -283,9 +283,9 @@ class TopAgent:
         # Redirect log contains format with rich text.
         # Provide a rich-free version for log parsing or less viewing.
         if self.redirect_log:
-            with open(f"{log_dir_per_run}/mage_rtl.log", "r") as f:
+            with open(f"{log_dir_per_run}/silica_rtl.log", "r") as f:
                 content = f.read()
             content = re.sub(r"\[.*?m", "", content)
-            with open(f"{log_dir_per_run}/mage_rtl_rich_free.log", "w") as f:
+            with open(f"{log_dir_per_run}/silica_rtl_rich_free.log", "w") as f:
                 f.write(content)
         return result

@@ -73,7 +73,7 @@ class LoggingManager:
                 logger.addHandler(self.rich_handler)
             return
 
-        unified_log_file = os.path.join(self.current_log_dir, f"mage_rtl_total.log")
+        unified_log_file = os.path.join(self.current_log_dir, f"silica_rtl_total.log")
         if os.path.exists(unified_log_file):
             os.remove(unified_log_file)
         unified_file_handler = logging.FileHandler(unified_log_file)
