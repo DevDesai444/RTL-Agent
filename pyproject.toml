@@ -3,10 +3,13 @@ requires = ["setuptools>=64.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mage"
+name = "silica"
 version = "1.0.1"
-description = "MAGE: Open-source multi-agent LLM RTL code generator"
+description = "SILICA: Open-source multi-agent LLM RTL code generator"
 readme = { file = "README.md", content-type = "text/markdown" }
+authors = [
+  { name = "Dev Desai", email = "devdesaiofficial@gmail.com" }
+]
 requires-python = ">=3.11"
 dependencies = [
   "config",
@@ -24,15 +27,17 @@ dependencies = [
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
-  "License :: OSI Approved :: Apache Software License",
   "Operating System :: POSIX",
   "Programming Language :: Python :: 3"
 ]
 
+[project.urls]
+Repository = "https://github.com/DevDesai444/RTL-Agent.git"
+
 [tool.setuptools]
 include-package-data = true
 zip-safe = false
-packages = ["mage"]
+packages = ["silica"]
 
 [tool.setuptools.package-dir]
 "" = "src"
