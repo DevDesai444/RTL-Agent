@@ -10,7 +10,7 @@ This project sits at the intersection of:
 
 Instead of treating RTL generation as a single prompt-response task, RTL-Agent decomposes the problem into specialized roles that generate test infrastructure, draft RTL, run simulation, diagnose failures, and patch the design until it converges or exhausts a bounded repair budget.
 
-![RTL-Agent overview](/Users/DEVDESAI1/Desktop/University_at_Buffalo/Projects/RTL-Agent/fig/DAC-overview.png)
+![RTL-Agent overview](fig/overview.png)
 
 ## Why this project matters
 
@@ -124,7 +124,7 @@ RTL-Agent/
   action.yml
   fig/
   src/
-    mage/
+    silica/
       agent.py
       benchmark_read_helper.py
       bash_tools.py
@@ -156,7 +156,7 @@ RTL-Agent/
 
 ### 1. `TopAgent`: the orchestrator
 
-[`src/mage/agent.py`](/Users/DEVDESAI1/Desktop/University_at_Buffalo/Projects/RTL-Agent/src/mage/agent.py) owns the high-level control flow. It:
+[`src/silica/agent.py`](src/silica/agent.py) owns the high-level control flow. It:
 - creates per-run output and log directories
 - initializes all worker modules
 - executes either the full multi-agent flow or an ablation path
@@ -167,7 +167,7 @@ The main architectural value of `TopAgent` is that it turns several individually
 
 ### 2. `TBGenerator`: executable context generation
 
-[`src/mage/tb_generator.py`](/Users/DEVDESAI1/Desktop/University_at_Buffalo/Projects/RTL-Agent/src/mage/tb_generator.py) generates:
+[`src/silica/tb_generator.py`](src/silica/tb_generator.py) generates:
 - a SystemVerilog testbench
 - the interface or module signature
 
@@ -175,7 +175,7 @@ This matters because LLM-generated RTL quality improves when the model sees the 
 
 ### 3. `RTLGenerator`: syntax-aware implementation search
 
-[`src/mage/rtl_generator.py`](/Users/DEVDESAI1/Desktop/University_at_Buffalo/Projects/RTL-Agent/src/mage/rtl_generator.py) handles:
+[`src/silica/rtl_generator.py`](src/silica/rtl_generator.py) handles:
 - initial RTL generation
 - syntax retry loops
 - candidate batch generation for later ranking
@@ -187,7 +187,7 @@ This lets the project measure two regimes:
 
 ### 4. `SimReviewer`: hard correctness signal
 
-[`src/mage/sim_reviewer.py`](/Users/DEVDESAI1/Desktop/University_at_Buffalo/Projects/RTL-Agent/src/mage/sim_reviewer.py) is the verification core. It:
+[`src/silica/sim_reviewer.py`](src/silica/sim_reviewer.py) is the verification core. It:
 - runs syntax checks with `iverilog -t null`
 - compiles executable simulation payloads
 - runs the design under simulation
@@ -197,7 +197,7 @@ This is the module that converts speculative generation into measurable behavior
 
 ### 5. `SimJudge`: fault attribution
 
-[`src/mage/sim_judge.py`](/Users/DEVDESAI1/Desktop/University_at_Buffalo/Projects/RTL-Agent/src/mage/sim_judge.py) uses model reasoning to answer a crucial systems question:
+[`src/silica/sim_judge.py`](src/silica/sim_judge.py) uses model reasoning to answer a crucial systems question:
 
 Is the current failure more likely due to a flawed testbench or flawed RTL?
 
@@ -205,11 +205,11 @@ That distinction improves repair efficiency because otherwise the pipeline can s
 
 ### 6. `RTLEditor`: targeted recovery instead of restart
 
-[`src/mage/rtl_editor.py`](/Users/DEVDESAI1/Desktop/University_at_Buffalo/Projects/RTL-Agent/src/mage/rtl_editor.py) applies constrained edit actions to a failing RTL candidate. This module is important because many generated designs are close to correct. In those cases, local repair is often cheaper and more stable than full regeneration.
+[`src/silica/rtl_editor.py`](src/silica/rtl_editor.py) applies constrained edit actions to a failing RTL candidate. This module is important because many generated designs are close to correct. In those cases, local repair is often cheaper and more stable than full regeneration.
 
 ### 7. `TokenCounter`: experimental observability
 
-[`src/mage/token_counter.py`](/Users/DEVDESAI1/Desktop/University_at_Buffalo/Projects/RTL-Agent/src/mage/token_counter.py) tracks:
+[`src/silica/token_counter.py`](src/silica/token_counter.py) tracks:
 - input token count
 - output token count
 - provider-specific cost heuristics
@@ -227,15 +227,17 @@ RTL-Agent uses `llama-index` abstractions to normalize calls across multiple LLM
 - Groq via OpenAI-compatible API
 - Cerebras via OpenAI-compatible API
 
-Provider setup is handled in [`src/mage/gen_config.py`](/Users/DEVDESAI1/Desktop/University_at_Buffalo/Projects/RTL-Agent/src/mage/gen_config.py).
+Provider setup is handled in [`src/silica/gen_config.py`](src/silica/gen_config.py).
 
 This flexibility matters for benchmarking because the project is not tied to a single inference vendor or model family.
 
 ## Benchmarks
 
-RTL-Agent is designed around the `verilog-eval` benchmark suite included in this repository under [verilog-eval](/Users/DEVDESAI1/Desktop/University_at_Buffalo/Projects/RTL-Agent/verilog-eval).
+RTL-Agent is designed around the `verilog-eval` benchmark suite included in this repository under [verilog-eval](verilog-eval).
 
-The benchmark helper in [`src/mage/benchmark_read_helper.py`](/Users/DEVDESAI1/Desktop/University_at_Buffalo/Projects/RTL-Agent/src/mage/benchmark_read_helper.py) supports:
+> **Note:** `verilog-eval/` is a vendored copy of the upstream [NVlabs/verilog-eval](https://github.com/NVlabs/verilog-eval) dataset. Its original `LICENSE` and `README.md` are preserved unchanged under `verilog-eval/` for attribution.
+
+The benchmark helper in [`src/silica/benchmark_read_helper.py`](src/silica/benchmark_read_helper.py) supports:
 - `verilog_eval_v1`
 - `verilog_eval_v2`
 
@@ -248,7 +250,7 @@ The benchmark helper in [`src/mage/benchmark_read_helper.py`](/Users/DEVDESAI1/D
 
 ### Benchmark runner
 
-The main benchmark harness lives in [`tests/test_top_agent.py`](/Users/DEVDESAI1/Desktop/University_at_Buffalo/Projects/RTL-Agent/tests/test_top_agent.py).
+The main benchmark harness lives in [`tests/test_top_agent.py`](tests/test_top_agent.py).
 
 It currently includes a Cerebras/Qwen ablation configuration for:
 - provider: `cerebras`
@@ -270,7 +272,7 @@ This repository currently contains one directly inspectable benchmark artifact:
 - token limit consumption: `482431`
 
 Source artifact:
-- [output_verilog_eval_v2_cerebras_qwen3_ablation_0/record.json](/Users/DEVDESAI1/Desktop/University_at_Buffalo/Projects/RTL-Agent/output_verilog_eval_v2_cerebras_qwen3_ablation_0/record.json)
+- [output_verilog_eval_v2_cerebras_qwen3_ablation_0/record.json](output_verilog_eval_v2_cerebras_qwen3_ablation_0/record.json)
 
 ### How to interpret that result
 
